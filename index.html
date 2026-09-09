@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NVDX Solana Token</title>
+  <style>
+    body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:20px;background:#0b0f0d;color:#eee}
+    .card{background:#151b18;border:1px solid #29332e;border-radius:18px;padding:24px}
+    button{padding:13px 18px;border:0;border-radius:10px;cursor:pointer;margin:6px 0;font-weight:700}
+    #connect{background:#7cff5b;color:#071006}.action{background:#eee;color:#111}
+    #status{white-space:pre-wrap;background:#090c0a;padding:14px;border-radius:10px;margin-top:16px}
+    code{word-break:break-all}
+  </style>
+</head>
+<body>
+<div class="card">
+<h1>NVIDIAx — NVDX</h1>
+<p>Solana SPL Token • Supply: 1,000,000,000 • Decimals: 9</p>
+<button id="connect">اتصال Phantom</button>
+<button class="action" id="create" disabled>ساخت Mint</button>
+<button class="action" id="mint" disabled>Mint کردن 1 میلیارد NVDX</button>
+<div id="status">وضعیت: کیف پول متصل نیست.</div>
+</div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
