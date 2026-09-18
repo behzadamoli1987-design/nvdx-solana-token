@@ -1,6 +1,7 @@
 import {
   Connection,
   PublicKey,
+  Keypair,
   SystemProgram,
   Transaction,
   clusterApiUrl,
@@ -14,59 +15,33 @@ import {
 } from "https://esm.sh/@solana/spl-token@0.4.14";
 
 
-// ========================================
-// تنظیمات
-// ========================================
+const $ = (id) => document.getElementById(id);
 
-const NETWORK = "devnet";
+const connectButton = $("connect");
+const createButton = $("create");
+const mintButton = $("mint");
+const statusBox = $("status");
 
 const connection = new Connection(
-  clusterApiUrl(NETWORK),
+  clusterApiUrl("devnet"),
   "confirmed"
 );
-
-
-// ========================================
-// متغیرها
-// ========================================
 
 let provider = null;
 let publicKey = null;
 let mintAddress = null;
 
 
-// ========================================
-// ابزار ساده برای HTML
-// ========================================
-
-function $(id) {
-  return document.getElementById(id);
-}
-
-
-function log(message) {
-  const status = $("status");
-
-  if (status) {
-    status.textContent = message;
-  }
-}
-
-
-// ========================================
-// پیدا کردن Phantom
-// ========================================
+/* =========================
+   Phantom Provider
+========================= */
 
 function getProvider() {
-
   if (window.phantom?.solana) {
     return window.phantom.solana;
   }
 
-  if (
-    window.solana &&
-    window.solana.isPhantom
-  ) {
+  if (window.solana) {
     return window.solana;
   }
 
@@ -74,358 +49,194 @@ function getProvider() {
 }
 
 
-// ========================================
-// اتصال Phantom
-// ========================================
+/* =========================
+   اتصال Phantom
+========================= */
 
 async function connectPhantom() {
-
   try {
-
     provider = getProvider();
 
     if (!provider) {
-
-      log(
-        "Phantom پیدا نشد.\n\n" +
-        "سایت را داخل مرورگر داخلی Phantom باز کن."
+      throw new Error(
+        "Phantom پیدا نشد. صفحه را داخل مرورگر داخلی Phantom باز کنید."
       );
-
-      return;
     }
 
-
-    const response =
-      await provider.connect();
-
+    const resp = await provider.connect();
 
     const walletAddress =
-      response?.publicKey ||
+      resp?.publicKey ||
       provider.publicKey;
 
-
     if (!walletAddress) {
-
-      throw new Error(
-        "آدرس کیف پول از Phantom دریافت نشد."
-      );
+      throw new Error("آدرس کیف پول دریافت نشد.");
     }
 
-
-    // تبدیل صریح به PublicKey
     publicKey =
       walletAddress instanceof PublicKey
         ? walletAddress
-        : new PublicKey(
-            walletAddress.toString()
-          );
+        : new PublicKey(walletAddress.toString());
 
-
-    $("create").disabled = false;
-
-    $("mint").disabled = true;
-
-
-    const address =
-      publicKey.toString();
-
-
-    log(
+    statusBox.textContent =
       "✅ کیف پول با موفقیت وصل شد.\n\n" +
       "آدرس:\n" +
-      address.slice(0, 8) +
-      "..." +
-      address.slice(-6) +
-      "\n\n" +
-      "شبکه: Solana Devnet"
-    );
+      publicKey.toString() +
+      "\n\nشبکه: Solana Devnet";
+
+    createButton.disabled = false;
 
   } catch (error) {
 
-    console.error(
-      "Phantom connection error:",
-      error
-    );
+    console.error(error);
 
-
-    log(
-      "❌ خطا در اتصال Phantom:\n\n" +
-      (
-        error?.message ||
-        String(error)
-      )
-    );
+    statusBox.textContent =
+      "❌ خطا در اتصال:\n\n" +
+      (error?.message || String(error));
   }
 }
 
 
-// ========================================
-// ساخت تراکنش Mint
-// ========================================
-
-async function buildMintTransaction() {
-
-  if (!provider || !publicKey) {
-
-    throw new Error(
-      "ابتدا Phantom را وصل کن."
-    );
-  }
-
-
-  // Seed یکتا برای ساخت آدرس Mint
-  const seed =
-    (
-      "nvdx" +
-      Date.now().toString(36)
-    ).slice(0, 32);
-
-
-  // ساخت آدرس Mint
-  const mint =
-    await PublicKey.createWithSeed(
-      publicKey,
-      seed,
-      TOKEN_PROGRAM_ID
-    );
-
-
-  // بررسی وجود قبلی
-  const existing =
-    await connection.getAccountInfo(
-      mint
-    );
-
-
-  if (existing) {
-
-    throw new Error(
-      "این آدرس Mint قبلاً استفاده شده است.\n\n" +
-      "دوباره تلاش کن."
-    );
-  }
-
-
-  // مقدار SOL لازم برای rent
-  const lamports =
-    await getMinimumBalanceForRentExemptMint(
-      connection
-    );
-
-
-  // دریافت blockhash
-  const blockhashData =
-    await connection.getLatestBlockhash(
-      "confirmed"
-    );
-
-
-  const blockhash =
-    blockhashData.blockhash;
-
-
-  const lastValidBlockHeight =
-    blockhashData.lastValidBlockHeight;
-
-
-  // ساخت Transaction
-  const transaction =
-    new Transaction({
-
-      feePayer:
-        publicKey,
-
-      recentBlockhash:
-        blockhash
-    });
-
-
-  transaction.lastValidBlockHeight =
-    lastValidBlockHeight;
-
-
-  // ======================================
-  // ایجاد حساب Mint
-  // ======================================
-
-  transaction.add(
-
-    SystemProgram.createAccountWithSeed({
-
-      fromPubkey:
-        publicKey,
-
-      basePubkey:
-        publicKey,
-
-      seed:
-        seed,
-
-      newAccountPubkey:
-        mint,
-
-      lamports:
-        lamports,
-
-      space:
-        MINT_SIZE,
-
-      programId:
-        TOKEN_PROGRAM_ID
-    }),
-
-
-    // ====================================
-    // Initialize Mint
-    // ====================================
-
-    createInitializeMintInstruction(
-
-      mint,
-
-      9,
-
-      publicKey,
-
-      publicKey,
-
-      TOKEN_PROGRAM_ID
-    )
-  );
-
-
-  return {
-
-    transaction,
-
-    mint,
-
-    blockhash,
-
-    lastValidBlockHeight
-  };
-}
-
-
-// ========================================
-// ساخت Mint
-// ========================================
+/* =========================
+   ساخت Mint
+========================= */
 
 async function createMint() {
 
   try {
 
     if (!provider || !publicKey) {
-
       throw new Error(
-        "ابتدا Phantom را وصل کن."
+        "ابتدا Phantom را متصل کنید."
       );
     }
 
+    createButton.disabled = true;
 
-    $("create").disabled = true;
+    statusBox.textContent =
+      "⏳ در حال آماده‌سازی Mint...\n\n" +
+      "لطفاً منتظر بمانید.";
 
+    /*
+      ساخت Keypair جدید برای Mint
+    */
 
-    log(
-      "در حال ساخت تراکنش...\n\n" +
-      "لطفاً صبر کن."
-    );
+    const mintKeypair = Keypair.generate();
 
-
-    // ساخت تراکنش
-    const {
-
-      transaction,
-
-      mint,
-
-      blockhash,
-
-      lastValidBlockHeight
-
-    } =
-      await buildMintTransaction();
-
-
-    // ====================================
-    // شبیه‌سازی تراکنش
-    // ====================================
-
-    log(
-      "در حال بررسی تراکنش روی Solana Devnet..."
-    );
+    mintAddress = mintKeypair.publicKey;
 
 
     /*
-      نکته مهم:
-
-      اینجا عمداً فقط Transaction را
-      به simulateTransaction می‌دهیم.
-
-      آرگومان config قبلی باعث
-      Invalid arguments می‌شد.
+      محاسبه Rent
     */
 
-    const simulation =
-      await connection.simulateTransaction(
-        transaction
+    const lamports =
+      await getMinimumBalanceForRentExemptMint(
+        connection
       );
 
 
-    // ====================================
-    // بررسی نتیجه Simulation
-    // ====================================
+    /*
+      دریافت Blockhash
+    */
 
-    if (simulation.value.err) {
-
-      console.error(
-        "Simulation error:",
-        simulation.value.err
+    const latestBlockhash =
+      await connection.getLatestBlockhash(
+        "confirmed"
       );
 
 
-      console.error(
-        "Simulation logs:",
-        simulation.value.logs
+    /*
+      ساخت حساب Mint
+    */
+
+    const createMintAccountInstruction =
+      SystemProgram.createAccount({
+
+        fromPubkey: publicKey,
+
+        newAccountPubkey:
+          mintKeypair.publicKey,
+
+        space: MINT_SIZE,
+
+        lamports: lamports,
+
+        programId:
+          TOKEN_PROGRAM_ID
+      });
+
+
+    /*
+      Initialize Mint
+
+      decimals = 9
+
+      mint authority = کیف پول کاربر
+
+      freeze authority = کیف پول کاربر
+    */
+
+    const initializeMintInstruction =
+      createInitializeMintInstruction(
+
+        mintKeypair.publicKey,
+
+        9,
+
+        publicKey,
+
+        publicKey,
+
+        TOKEN_PROGRAM_ID
       );
 
 
-      let details =
-        "شبیه‌سازی تراکنش ناموفق بود.";
+    /*
+      ساخت تراکنش
+    */
 
+    const transaction =
+      new Transaction({
 
-      if (
-        simulation.value.logs &&
-        simulation.value.logs.length
-      ) {
+        feePayer: publicKey,
 
-        details +=
-          "\n\nLogs:\n" +
-          simulation.value.logs.join(
-            "\n"
-          );
-      }
+        recentBlockhash:
+          latestBlockhash.blockhash,
 
+        lastValidBlockHeight:
+          latestBlockhash.lastValidBlockHeight
 
-      throw new Error(
-        details
+      }).add(
+
+        createMintAccountInstruction,
+
+        initializeMintInstruction
+
       );
-    }
 
 
-    // ====================================
-    // Simulation موفق
-    // ====================================
+    /*
+      Mint Keypair باید خودش این قسمت
+      از تراکنش را امضا کند.
+    */
 
-    log(
-      "✅ شبیه‌سازی موفق بود.\n\n" +
-      "در حال باز کردن Phantom برای تأیید..."
+    transaction.partialSign(
+      mintKeypair
     );
 
 
-    // ====================================
-    // ارسال به Phantom
-    // ====================================
+    statusBox.textContent =
+      "🔐 تراکنش آماده است.\n\n" +
+      "Mint Address:\n" +
+      mintKeypair.publicKey.toString() +
+      "\n\n" +
+      "اکنون Phantom باید تراکنش را نمایش دهد.";
+
+
+    /*
+      ارسال به Phantom
+    */
 
     const result =
       await provider.signAndSendTransaction(
@@ -433,214 +244,101 @@ async function createMint() {
       );
 
 
-    const signature =
-      result?.signature ||
-      result;
-
-
-    if (!signature) {
-
-      throw new Error(
-        "Phantom امضای تراکنش را برنگرداند."
-      );
-    }
-
-
-    // ====================================
-    // تأیید تراکنش روی Devnet
-    // ====================================
-
-    log(
-      "تراکنش ارسال شد.\n\n" +
-      "در حال انتظار برای تأیید Solana..."
-    );
-
+    /*
+      تأیید تراکنش
+    */
 
     await connection.confirmTransaction(
-
       {
-        signature:
-          signature,
-
+        signature: result.signature,
         blockhash:
-          blockhash,
-
+          latestBlockhash.blockhash,
         lastValidBlockHeight:
-          lastValidBlockHeight
+          latestBlockhash.lastValidBlockHeight
       },
-
       "confirmed"
     );
 
 
-    // ====================================
-    // موفقیت نهایی
-    // ====================================
-
-    mintAddress =
-      mint.toString();
-
-
-    $("mint").disabled = true;
-
-
-    log(
-
+    statusBox.textContent =
       "✅ Mint با موفقیت ساخته شد!\n\n" +
-
       "Mint Address:\n" +
-
-      mintAddress +
-
+      mintKeypair.publicKey.toString() +
       "\n\n" +
-
       "Transaction:\n" +
-
-      signature +
-
+      result.signature +
       "\n\n" +
-
-      "شبکه:\n" +
-
-      "Solana Devnet\n\n" +
-
-      "⚠️ مرحله Mint کردن 1 میلیارد NVDX فعلاً غیرفعال است."
-    );
+      "شبکه: Solana Devnet";
 
 
-    console.log(
-      "Mint Address:",
-      mintAddress
-    );
+    /*
+      فعلاً دکمه Mint کردن توکن‌ها
+      فعال نمی‌شود.
+    */
 
+    mintButton.disabled = true;
 
-    console.log(
-      "Transaction Signature:",
-      signature
-    );
 
   } catch (error) {
 
     console.error(
-      "Create Mint error:",
+      "CREATE MINT ERROR:",
       error
     );
 
+    createButton.disabled = false;
 
-    log(
-
-      "❌ خطا:\n\n" +
-
-      (
-        error?.message ||
-        String(error)
-      )
-    );
-
-  } finally {
-
-    $("create").disabled =
-      !publicKey;
+    statusBox.textContent =
+      "❌ خطا در ساخت Mint:\n\n" +
+      (error?.message || String(error)) +
+      "\n\n" +
+      "جزئیات فنی در Console ثبت شد.";
   }
 }
 
 
-// ========================================
-// Mint کردن 1 میلیارد NVDX
-// فعلاً غیرفعال
-// ========================================
+/* =========================
+   دکمه‌ها
+========================= */
 
-function mintOneBillion() {
+connectButton.addEventListener(
+  "click",
+  connectPhantom
+);
 
-  log(
-
-    "این مرحله فعلاً غیرفعال است.\n\n" +
-
-    "ابتدا باید Mint Address را بررسی کنیم."
-  );
-}
+createButton.addEventListener(
+  "click",
+  createMint
+);
 
 
-// ========================================
-// شروع برنامه
-// ========================================
+/*
+  فعلاً غیرفعال
+*/
+
+mintButton.disabled = true;
+
+
+/* =========================
+   بررسی اولیه
+========================= */
 
 window.addEventListener(
   "load",
   () => {
 
-    provider =
-      getProvider();
-
-
-    const connectButton =
-      $("connect");
-
-    const createButton =
-      $("create");
-
-    const mintButton =
-      $("mint");
-
-
-    if (connectButton) {
-
-      connectButton.addEventListener(
-        "click",
-        connectPhantom
-      );
-    }
-
-
-    if (createButton) {
-
-      createButton.addEventListener(
-        "click",
-        createMint
-      );
-    }
-
-
-    if (mintButton) {
-
-      mintButton.addEventListener(
-        "click",
-        mintOneBillion
-      );
-    }
-
-
-    if (createButton) {
-
-      createButton.disabled =
-        true;
-    }
-
-
-    if (mintButton) {
-
-      mintButton.disabled =
-        true;
-    }
-
+    provider = getProvider();
 
     if (provider) {
 
-      log(
-
-        "Phantom آماده است.\n\n" +
-
-        "روی «اتصال Phantom» بزن."
-      );
+      statusBox.textContent =
+        "Phantom آماده است.";
 
     } else {
 
-      log(
-
+      statusBox.textContent =
         "Phantom پیدا نشد.\n\n" +
-
-        "سایت را داخل مرورگر داخلی Phantom باز کن."
-      );
+        "این صفحه را داخل مرورگر داخلی Phantom باز کنید.";
     }
   }
 );
